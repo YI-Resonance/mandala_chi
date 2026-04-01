@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1"
+     xmlns="http://www.w3.org/2000/svg"
+     width="400"
+     height="400"
+     viewBox="0 0 400 400">
+
+  <rect
+    x="58.56"
+    y="58.62"
+    transform="matrix(0.7071 0.7071 -0.7071 0.7071 200.0157 -82.8357)"
+    fill="#FFFFFF"
+    stroke="#000000"
+    stroke-width="6"
+    vector-effect="non-scaling-stroke"
+    stroke-miterlimit="10"
+    width="282.878"
+    height="282.806" />
+</svg>
