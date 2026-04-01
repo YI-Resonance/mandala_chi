@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <title>曼陀羅播放器</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      overflow: hidden;
+    }
+
+    /* 星空背景 */
+    #stars {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* 中央容器：永遠佔螢幕 90% */
+    #container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 90vmin;
+      height: 90vmin;
+      transform: translate(-50%, -50%);
+      z-index: 10;
+    }
+
+    #mandala {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 100%;
+      height: 100%;
+      transform-origin: center center;
+      transform: translate(-50%, -50%);
+      z-index: 5;
+      transition: opacity 1s ease;
+      opacity: 1;
+    }
+
+    .fade-out { opacity: 0; }
+
+    #canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 11;
+    }
+
+    /* 右側按鈕欄 */
+    #controls {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 25px;
+      z-index: 20;
+    }
+
+    .iconBtn {
+      width: 100px;
+      height: 100px;
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      cursor: pointer;
+    }
+
+    /* 按鈕圖片（你可自行替換） */
+    #btnImage     { background-image: url("buttons/IMG_.png"); }
+    #btnMusic     { background-image: url("buttons/MUSIC.png"); }
+    #btnStart     { background-image: url("buttons/START_.png"); }
+    #btnParticles { background-image: url("buttons/PARTICLES.png"); }
+    #btnFull      { background-image: url("buttons/FULL_.png"); }
+
+    #btnImage:hover { background-image: url("buttons/IMG_H.png"); }
+    #btnMusic:hover   { background-image: url("buttons/MUSIC_H.png"); }
+    #btnStart:hover   { background-image: url("buttons/START_H.png"); }
+    #btnParticles:hover   { background-image: url("buttons/PARTICLES_H.png"); }
+    #btnFull:hover   { background-image: url("buttons/FULL_H.png"); }
+
+    input[type="file"] { display: none; }
+
+    :fullscreen #controls { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- 星空 -->
+  <canvas id="stars"></canvas>
+
+  <!-- 中央曼陀羅 + 內圈粒子 -->
+  <div id="container">
+    <img id="mandala" src="your_mandala.png">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <!-- 音樂 -->
+  <audio id="bgm" loop></audio>
+
+  <!-- 右側按鈕 -->
+  <div id="controls">
+    <div id="btnImage"     class="iconBtn"></div>
+    <div id="btnMusic"     class="iconBtn"></div>
+    <div id="btnStart"     class="iconBtn"></div>
+    <div id="btnParticles" class="iconBtn"></div>
+    <div id="btnFull"      class="iconBtn"></div>
+  </div>
+
+  <!-- 隱藏 input -->
+  <input type="file" id="mandalaInput" accept="image/*">
+  <input type="file" id="musicInput"   accept="audio/*">
+
+  <script>
+    /* =========================
+       基本元素
+    ========================== */
+    const mandala = document.getElementById("mandala");
+    const bgm     = document.getElementById("bgm");
+
+    const canvas  = document.getElementById("canvas");
+    const ctx     = canvas.getContext("2d");
+
+    function resizeCanvas() {
+      canvas.width  = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+    }
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    const starsCanvas = document.getElementById("stars");
+    const starsCtx    = starsCanvas.getContext("2d");
+    starsCanvas.width  = window.innerWidth;
+    starsCanvas.height = window.innerHeight;
+
+    window.addEventListener("resize", () => {
+      starsCanvas.width  = window.innerWidth;
+      starsCanvas.height = window.innerHeight;
+    });
+
+    /* =========================
+       上載曼陀羅圖片（淡出→淡入）
+    ========================== */
+    document.getElementById("btnImage").onclick = () => {
+      document.getElementById("mandalaInput").click();
+    };
+
+    document.getElementById("mandalaInput").addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        mandala.classList.add("fade-out");
+        setTimeout(() => {
+          mandala.src = reader.result;
+          mandala.classList.remove("fade-out");
+        }, 1000);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    /* =========================
+       上載音樂（可選）
+    ========================== */
+    document.getElementById("btnMusic").onclick = () => {
+      document.getElementById("musicInput").click();
+    };
+
+    document.getElementById("musicInput").addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = ev => {
+        bgm.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    /* =========================
+       全螢幕
+    ========================== */
+    document.getElementById("btnFull").onclick = () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    };
+
+    /* =========================
+       音樂分析（被動監聽）
+    ========================== */
+    let audioCtx, analyser, freqData;
+
+    function setupAudioAnalyzer() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+
+      const dummy = audioCtx.createGain();
+      dummy.connect(analyser);
+    }
+
+    function getBeatBoost() {
+      if (!analyser || !freqData) return 0;
+      analyser.getByteFrequencyData(freqData);
+
+      let bass = 0;
+      for (let i = 0; i < 12; i++) bass += freqData[i];
+      bass /= 12;
+
+      return bass / 255;
+    }
+
+    /* =========================
+       自動載入 images/innerX.png
+    ========================== */
+    const IMAGE_FOLDER = "images/";
+    const loadedImages = [];
+
+    function autoLoadImages(callback) {
+      let index = 1;
+      let fail = 0;
+
+      function tryLoad() {
+        const img = new Image();
+        img.src = `${IMAGE_FOLDER}inner${index}.png`;
+
+        img.onload = () => {
+          loadedImages.push(img);
+          index++;
+          fail = 0;
+          tryLoad();
+        };
+
+        img.onerror = () => {
+          fail++;
+          if (fail >= 20) callback();
+          else {
+            index++;
+            tryLoad();
+          }
+        };
+      }
+      tryLoad();
+    }
+
+    function randomImage() {
+      return loadedImages[Math.floor(Math.random() * loadedImages.length)];
+    }
+
+    /* =========================
+       粒子（沿用你成功的版本）
+    ========================== */
+    class Particle {
+      constructor() { this.reset(); }
+
+      reset() {
+        this.img = randomImage();
+        this.angle = Math.random() * Math.PI * 2;
+        this.radius = 80 + Math.random() * 200;
+        this.rotation = Math.random() * Math.PI * 2;
+        this.rotationSpeed = (Math.random() - 0.5) * 0.01;
+        this.life = 2000 + Math.random() * 4000;
+        this.fadeIn = 400;
+        this.fadeOut = 400;
+        this.age = 0;
+      }
+
+      update(dt) {
+        this.age += dt;
+        this.rotation += this.rotationSpeed;
+        if (this.age >= this.life) this.reset();
+      }
+
+      alpha() {
+        if (this.age < this.fadeIn) return this.age / this.fadeIn;
+        if (this.age > this.life - this.fadeOut)
+          return (this.life - this.age) / this.fadeOut;
+        return 1;
+      }
+    }
+
+    /* =========================
+       星星
+    ========================== */
+    class Star {
+      constructor() {
+        this.x = Math.random() * window.innerWidth;
+        this.y = Math.random() * window.innerHeight;
+        this.base = 0.2 + Math.random() * 0.3;
+        this.speed = 0.5 + Math.random() * 0.5;
+        this.phase = Math.random() * Math.PI * 2;
+      }
+
+      alpha(t, beat) {
+        return this.base + 0.3 * Math.sin(t * this.speed + this.phase) + beat * 0.3;
+      }
+    }
+
+    const STAR_COUNT     = 540;
+    const PARTICLE_COUNT = 21;
+    const stars    = [];
+    const particles = [];
+
+    let animating  = false;
+    let particlesEnabled = true;
+    let lastTime   = null;
+    let globalTime = 0;
+
+    /* =========================
+       粒子繪圖
+    ========================== */
+    function drawParticles(dt, beat) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!particlesEnabled) return;
+
+      const center = canvas.width / 2;
+      const imgSize = 60 + beat * 20;
+
+      const r = Math.floor(beat * 255);
+      const g = Math.floor((1 - beat) * 200);
+      const b = Math.floor((Math.sin(globalTime / 500) + 1) * 120);
+      const color = `rgb(${r}, ${g}, ${b})`;
+
+      particles.forEach(p => {
+        p.update(dt);
+        const x = center + p.radius * Math.cos(p.angle);
+        const y = center - p.radius * Math.sin(p.angle);
+
+        ctx.save();
+ctx.translate(x, y);
+ctx.rotate(p.rotation);
+ctx.globalAlpha = p.alpha();
+
+// 先畫原圖
+ctx.drawImage(p.img, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
+
+// 再疊顏色（這是你原本的效果）
+ctx.globalCompositeOperation = "source-atop";
+ctx.fillStyle = color;
+ctx.fillRect(-imgSize / 2, -imgSize / 2, imgSize, imgSize);
+
+// 還原
+ctx.globalCompositeOperation = "source-over";
+ctx.restore();
+
+      });
+    }
+
+    /* =========================
+       星空繪圖
+    ========================== */
+    function drawStars(dt, beat) {
+      starsCtx.clearRect(0, 0, starsCanvas.width, starsCanvas.height);
+      stars.forEach(s => {
+        starsCtx.globalAlpha = s.alpha(globalTime / 1000, beat);
+        starsCtx.fillStyle = "rgb(255,255,180)";
+        starsCtx.fillRect(s.x, s.y, 3 + beat * 3, 3 + beat * 3);
+      });
+    }
+
+    /* =========================
+       動畫主迴圈
+    ========================== */
+    function animate(timestamp) {
+      if (!animating) return;
+      if (lastTime === null) lastTime = timestamp;
+      const dt = timestamp - lastTime;
+      lastTime = timestamp;
+      globalTime += dt;
+
+      const beat = getBeatBoost();
+
+      drawParticles(dt, beat);
+      drawStars(dt, beat);
+
+      const rot = (globalTime / 1000) * (8 + beat * 20);
+      mandala.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
+
+      requestAnimationFrame(animate);
+    }
+
+    /* =========================
+       旋轉按鈕（不需音樂）
+    ========================== */
+    document.getElementById("btnStart").onclick = async () => {
+      animating = !animating;
+
+      if (animating) {
+        setupAudioAnalyzer();
+
+        if (bgm.src) {
+          try { await bgm.play(); } catch (e) {}
+        }
+
+        lastTime   = null;
+        globalTime = 0;
+
+        particles.length = 0;
+        for (let i = 0; i < PARTICLE_COUNT; i++) particles.push(new Particle());
+
+        stars.length = 0;
+        for (let i = 0; i < STAR_COUNT; i++) stars.push(new Star());
+
+        requestAnimationFrame(animate);
+      } else {
+        bgm.pause();
+      }
+    };
+
+    /* =========================
+       粒子 ON/OFF 按鈕
+    ========================== */
+    document.getElementById("btnParticles").onclick = () => {
+      particlesEnabled = !particlesEnabled;
+    };
+
+    /* =========================
+       初始化：載入 images
+    ========================== */
+    autoLoadImages(() => {
+      console.log("Loaded inner images:", loadedImages.length);
+    });
+  </script>
+
+</body>
+</html>
